@@ -1,7 +1,7 @@
 #!/bin/bash
 #===============================================================================
 # pi-bootstrap.sh — Echolume's ADHD-Friendly Pi Shell Setup
-# Version: 5
+# Version: 6
 #
 # WHAT:  Installs zsh + oh-my-zsh + powerlevel10k with sane defaults
 # WHY:   Reduce cognitive load; make CLI accessible
@@ -456,7 +456,7 @@ install_packages() {
         wget
         fontconfig
         # Useful utilities
-        htop
+        btop
         ncdu
         tree
         jq
@@ -747,6 +747,13 @@ ZSH_AUTOSUGGEST_BUFFER_MAX_SIZE=20
 [[ -f ~/.p10k.zsh ]] && source ~/.p10k.zsh
 
 #-------------------------------------------------------------------------------
+# MOTD (login shells only - SSH, console)
+#-------------------------------------------------------------------------------
+if [[ -o login && -f /etc/profile.d/99-echolume-motd.sh ]]; then
+    source /etc/profile.d/99-echolume-motd.sh
+fi
+
+#-------------------------------------------------------------------------------
 # CUSTOM PATH ADDITIONS (add your own below)
 #-------------------------------------------------------------------------------
 # export PATH="$HOME/.local/bin:$PATH"
@@ -953,7 +960,7 @@ install_motd() {
 #===============================================================================
 # Echolume's Fun Homelab — Dynamic MOTD
 # lab.hoens.fun
-# Version: 5 (clean redesign)
+# Version: 6 (occasional tips)
 #===============================================================================
 
 # Colors
@@ -991,6 +998,25 @@ TAGLINES=(
     "99% uptime, 1% dread"
     "Keep calm and blame the network"
     "Have you tried rebooting?"
+)
+
+# Tips — shown ~30% of logins
+TIPS=(
+    "btop → pretty system monitor"
+    "ncdu → find what's eating disk"
+    "z dirname → jump to frequent dirs"
+    "Ctrl+R → search command history"
+    "temp → check CPU temperature"
+    "ports → see what's listening"
+    "!! → repeat last command"
+    "sudo !! → last command as root"
+    "duf → disk usage by folder"
+    "raspi-config → hardware settings"
+    "systemctl status <svc> → is it running?"
+    "journalctl -f → live system logs"
+    "Consider running 'update' weekly"
+    "Ctrl+L → clear screen"
+    "tldr <cmd> → simpler man pages"
 )
 
 # Pick random tagline
@@ -1080,8 +1106,14 @@ echo -e "${C_CYAN}├───────────────────�
 boxline "${PI_MODEL}                       ${C_DIM}Up${C_RESET} ${UPTIME_STR}"
 boxline "${TEMP_STR}   ${C_DIM}CPU${C_RESET} ${CPU_USAGE}%   ${C_DIM}RAM${C_RESET} ${RAM_STR}   ${C_DIM}Disk${C_RESET} ${DISK_STR} ${C_DIM}(${DISK_USED}/${DISK_TOTAL})${C_RESET}"
 boxline "${IP_ADDR} ${C_DIM}(${NET_IF})${C_RESET}"
-echo -e "${C_CYAN}├───────────────────────────────────────────────────────────┤${C_RESET}"
-boxline "${C_DIM}temp · update · ports · htop · duf${C_RESET}"
+
+# ~30% chance to show a tip (RANDOM % 10 < 3)
+if (( RANDOM % 10 < 3 )); then
+    TIP="${TIPS[$RANDOM % ${#TIPS[@]}]}"
+    echo -e "${C_CYAN}├───────────────────────────────────────────────────────────┤${C_RESET}"
+    boxline "${C_DIM}💡 ${TIP}${C_RESET}"
+fi
+
 echo -e "${C_CYAN}╰───────────────────────────────────────────────────────────╯${C_RESET}"
 echo ""
 MOTD_SCRIPT
@@ -1338,13 +1370,13 @@ EOF
 main() {
     echo ""
     echo -e "${BOLD}${CYAN}╔═══════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BOLD}${CYAN}║     PI-BOOTSTRAP — ADHD-Friendly Shell Setup  (v5)        ║${NC}"
+    echo -e "${BOLD}${CYAN}║     PI-BOOTSTRAP — ADHD-Friendly Shell Setup  (v6)        ║${NC}"
     echo -e "${BOLD}${CYAN}║     by Echolume · lab.hoens.fun                           ║${NC}"
     echo -e "${BOLD}${CYAN}╚═══════════════════════════════════════════════════════════╝${NC}"
     echo ""
     
     # Initialize log
-    echo "=== pi-bootstrap.sh v5 started $(date -Iseconds) ===" > "$LOG_FILE"
+    echo "=== pi-bootstrap.sh v6 started $(date -Iseconds) ===" > "$LOG_FILE"
     
     # Info-only mode
     if [[ "$INFO_ONLY" == true ]]; then
