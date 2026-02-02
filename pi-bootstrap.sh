@@ -1,7 +1,7 @@
 #!/bin/bash
 #===============================================================================
 # pi-bootstrap.sh — Echolume's ADHD-Friendly Pi Shell Setup
-# Version: 4
+# Version: 5
 #
 # WHAT:  Installs zsh + oh-my-zsh + powerlevel10k with sane defaults
 # WHY:   Reduce cognitive load; make CLI accessible
@@ -953,7 +953,7 @@ install_motd() {
 #===============================================================================
 # Echolume's Fun Homelab — Dynamic MOTD
 # lab.hoens.fun
-# Version: 4 (hardened)
+# Version: 5 (clean redesign)
 #===============================================================================
 
 # Colors
@@ -963,10 +963,11 @@ C_DIM='\033[2m'
 C_RED='\033[0;31m'
 C_GREEN='\033[0;32m'
 C_YELLOW='\033[0;33m'
-C_BLUE='\033[0;34m'
-C_MAGENTA='\033[0;35m'
 C_CYAN='\033[0;36m'
-C_WHITE='\033[0;37m'
+C_WHITE='\033[1;37m'
+
+# Box width (inner content = 57 chars)
+BOX_W=57
 
 # Taglines — random on each login
 TAGLINES=(
@@ -974,7 +975,6 @@ TAGLINES=(
     "Works on my machine ™"
     "Working as intended. Probably."
     "TODO: document this later"
-    "¯\\_(ツ)_/¯ but it works"
     "Powered by caffeine and spite"
     "Trust the process. Or don't."
     "Chaotic good infrastructure"
@@ -983,24 +983,39 @@ TAGLINES=(
     "There's no place like 127.0.0.1"
     "I'll refactor this tomorrow"
     "Not a bug, a surprise feature"
-    "Held together with zip ties and optimism"
+    "Held together with zip ties"
     "Future me problem"
     "git commit -m 'fixed stuff'"
     "chmod 777 and pray"
     "Over-engineered with love"
-    "99% uptime, 1% existential dread"
+    "99% uptime, 1% dread"
     "Keep calm and blame the network"
+    "Have you tried rebooting?"
 )
 
 # Pick random tagline
 TAGLINE="${TAGLINES[$RANDOM % ${#TAGLINES[@]}]}"
 
-# Safe padding helper: prevents negative widths -> printf errors (v4 fix)
-pad() { local n="$1"; (( n < 0 )) && n=0; printf '%*s' "$n" ''; }
+# Helper: print a line with auto-padding to box width
+boxline() {
+    local content="$1"
+    local plain=$(echo -e "$content" | sed 's/\x1b\[[0-9;]*m//g')
+    local len=${#plain}
+    local pad=$((BOX_W - len))
+    (( pad < 0 )) && pad=0
+    printf "${C_CYAN}│${C_RESET} %b%*s ${C_CYAN}│${C_RESET}\n" "$content" "$pad" ""
+}
 
 # Gather system info
 HOSTNAME_UPPER=$(hostname | tr '[:lower:]' '[:upper:]')
 UPTIME_STR=$(uptime -p 2>/dev/null | sed 's/up //' || echo "unknown")
+
+# Model (short version)
+if [[ -f /proc/device-tree/model ]]; then
+    PI_MODEL=$(tr -d '\0' < /proc/device-tree/model | sed 's/Raspberry Pi /RPi /')
+else
+    PI_MODEL="Linux"
+fi
 
 # Temperature with color coding
 if [[ -f /sys/class/thermal/thermal_zone0/temp ]]; then
@@ -1019,9 +1034,9 @@ else
 fi
 
 # CPU usage
-CPU_USAGE=$(top -bn1 | grep "Cpu(s)" | awk '{print int($2)}' 2>/dev/null || echo "?")
+CPU_USAGE=$(top -bn1 2>/dev/null | grep "Cpu(s)" | awk '{print int($2)}' || echo "?")
 
-# RAM
+# RAM with color
 RAM_TOTAL=$(free -m | awk '/^Mem:/ {print $2}')
 RAM_USED=$(free -m | awk '/^Mem:/ {print $3}')
 RAM_PCT=$((RAM_USED * 100 / RAM_TOTAL))
@@ -1032,11 +1047,12 @@ elif [[ $RAM_PCT -lt 85 ]]; then
 else
     RAM_COLOR="${C_RED}"
 fi
-RAM_STR="${RAM_COLOR}${RAM_USED}/${RAM_TOTAL}M (${RAM_PCT}%)${C_RESET}"
+RAM_STR="${RAM_COLOR}${RAM_PCT}%${C_RESET}"
 
-# Disk usage
-DISK_INFO=$(df -h / | awk 'NR==2 {print $3"/"$2" ("$5")"}')
+# Disk with color
 DISK_PCT=$(df / | awk 'NR==2 {print $5}' | tr -d '%')
+DISK_USED=$(df -h / | awk 'NR==2 {print $3}')
+DISK_TOTAL=$(df -h / | awk 'NR==2 {print $2}')
 if [[ $DISK_PCT -lt 70 ]]; then
     DISK_COLOR="${C_GREEN}"
 elif [[ $DISK_PCT -lt 85 ]]; then
@@ -1044,12 +1060,10 @@ elif [[ $DISK_PCT -lt 85 ]]; then
 else
     DISK_COLOR="${C_RED}"
 fi
-DISK_STR="${DISK_COLOR}${DISK_INFO}${C_RESET}"
+DISK_STR="${DISK_COLOR}${DISK_PCT}%${C_RESET}"
 
-# IP address
+# IP address and interface
 IP_ADDR=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "unknown")
-
-# Get interface name (v4 fix: use awk instead of grep -oP for portability)
 if command -v ip &>/dev/null; then
     NET_IF=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if ($i=="dev") {print $(i+1); exit}}' || true)
     [[ -z "$NET_IF" ]] && NET_IF="eth0"
@@ -1057,28 +1071,18 @@ else
     NET_IF="eth0"
 fi
 
-# Model (short version)
-if [[ -f /proc/device-tree/model ]]; then
-    PI_MODEL=$(tr -d '\0' < /proc/device-tree/model | sed 's/Raspberry Pi /RPi /')
-else
-    PI_MODEL="Linux"
-fi
-
-# Print the MOTD (v4 fix: use pad() to prevent negative printf widths)
+# Print the MOTD
 echo ""
-echo -e "${C_CYAN}╭─────────────────────────────────────────────────────────────────╮${C_RESET}"
-echo -e "${C_CYAN}│${C_RESET}   ${C_BOLD}${C_MAGENTA}█▀▀ ${HOSTNAME_UPPER}${C_RESET}$(pad $((43 - ${#HOSTNAME_UPPER})))${C_CYAN}│${C_RESET}"
-echo -e "${C_CYAN}│${C_RESET}   ${C_DIM}lab.hoens.fun${C_RESET}       ${C_DIM}\"${TAGLINE}\"${C_RESET}$(pad $((30 - ${#TAGLINE})))${C_CYAN}│${C_RESET}"
-echo -e "${C_CYAN}├─────────────────────────────────────────────────────────────────┤${C_RESET}"
-echo -e "${C_CYAN}│${C_RESET}   ${C_DIM}Model${C_RESET}   ${PI_MODEL}$(pad $((52 - ${#PI_MODEL})))${C_CYAN}│${C_RESET}"
-echo -e "${C_CYAN}│${C_RESET}   ${C_DIM}Uptime${C_RESET}  ${UPTIME_STR}$(pad $((52 - ${#UPTIME_STR})))${C_CYAN}│${C_RESET}"
-echo -e "${C_CYAN}│${C_RESET}   ${C_DIM}Temp${C_RESET}    ${TEMP_STR}$(pad 43)${C_CYAN}│${C_RESET}"
-echo -e "${C_CYAN}│${C_RESET}   ${C_DIM}CPU${C_RESET}     ${CPU_USAGE}%          ${C_DIM}RAM${C_RESET}  ${RAM_STR}$(pad 22)${C_CYAN}│${C_RESET}"
-echo -e "${C_CYAN}│${C_RESET}   ${C_DIM}Disk${C_RESET}    ${DISK_STR}$(pad 37)${C_CYAN}│${C_RESET}"
-echo -e "${C_CYAN}│${C_RESET}   ${C_DIM}IP${C_RESET}      ${IP_ADDR} ${C_DIM}(${NET_IF})${C_RESET}$(pad $((42 - ${#IP_ADDR} - ${#NET_IF})))${C_CYAN}│${C_RESET}"
-echo -e "${C_CYAN}├─────────────────────────────────────────────────────────────────┤${C_RESET}"
-echo -e "${C_CYAN}│${C_RESET}   ${C_DIM}Quick:${C_RESET} temp · update · ports · htop · duf                    ${C_CYAN}│${C_RESET}"
-echo -e "${C_CYAN}╰─────────────────────────────────────────────────────────────────╯${C_RESET}"
+echo -e "${C_CYAN}╭───────────────────────────────────────────────────────────╮${C_RESET}"
+boxline "${C_BOLD}${C_WHITE}${HOSTNAME_UPPER}${C_RESET}                                  ${C_DIM}lab.hoens.fun${C_RESET}"
+boxline "${C_DIM}\"${TAGLINE}\"${C_RESET}"
+echo -e "${C_CYAN}├───────────────────────────────────────────────────────────┤${C_RESET}"
+boxline "${PI_MODEL}                       ${C_DIM}Up${C_RESET} ${UPTIME_STR}"
+boxline "${TEMP_STR}   ${C_DIM}CPU${C_RESET} ${CPU_USAGE}%   ${C_DIM}RAM${C_RESET} ${RAM_STR}   ${C_DIM}Disk${C_RESET} ${DISK_STR} ${C_DIM}(${DISK_USED}/${DISK_TOTAL})${C_RESET}"
+boxline "${IP_ADDR} ${C_DIM}(${NET_IF})${C_RESET}"
+echo -e "${C_CYAN}├───────────────────────────────────────────────────────────┤${C_RESET}"
+boxline "${C_DIM}temp · update · ports · htop · duf${C_RESET}"
+echo -e "${C_CYAN}╰───────────────────────────────────────────────────────────╯${C_RESET}"
 echo ""
 MOTD_SCRIPT
 
@@ -1334,13 +1338,13 @@ EOF
 main() {
     echo ""
     echo -e "${BOLD}${CYAN}╔═══════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BOLD}${CYAN}║     PI-BOOTSTRAP — ADHD-Friendly Shell Setup  (v4)        ║${NC}"
+    echo -e "${BOLD}${CYAN}║     PI-BOOTSTRAP — ADHD-Friendly Shell Setup  (v5)        ║${NC}"
     echo -e "${BOLD}${CYAN}║     by Echolume · lab.hoens.fun                           ║${NC}"
     echo -e "${BOLD}${CYAN}╚═══════════════════════════════════════════════════════════╝${NC}"
     echo ""
     
     # Initialize log
-    echo "=== pi-bootstrap.sh v4 started $(date -Iseconds) ===" > "$LOG_FILE"
+    echo "=== pi-bootstrap.sh v5 started $(date -Iseconds) ===" > "$LOG_FILE"
     
     # Info-only mode
     if [[ "$INFO_ONLY" == true ]]; then
