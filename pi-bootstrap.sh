@@ -1,7 +1,7 @@
 #!/bin/bash
 #===============================================================================
 # pi-bootstrap.sh — Echolume's ADHD-Friendly Pi Shell Setup
-# Version: 6
+# Version: 7
 #
 # WHAT:  Installs zsh + oh-my-zsh + powerlevel10k with sane defaults
 # WHY:   Reduce cognitive load; make CLI accessible
@@ -199,7 +199,7 @@ detect_extended_hardware() {
     
     # Throttling status (Pi-specific)
     if command -v vcgencmd &>/dev/null; then
-        THROTTLE_STATUS=$(vcgencmd get_throttled 2>/dev/null | cut -d= -f2 || echo "N/A")
+        THROTTLE_STATUS=$(timeout 3 vcgencmd get_throttled 2>/dev/null | cut -d= -f2 || echo "N/A")
     else
         THROTTLE_STATUS="vcgencmd not available"
     fi
@@ -219,11 +219,11 @@ detect_extended_hardware() {
         LIBCAMERA="not installed"
     fi
     
-    # I2C status
+    # I2C status (with timeout to prevent hang)
     if [[ -e /dev/i2c-1 ]]; then
         I2C_STATUS="enabled"
         if command -v i2cdetect &>/dev/null; then
-            I2C_DEVICES=$(i2cdetect -y 1 2>/dev/null | grep -c "^[0-9]" || echo "0")
+            I2C_DEVICES=$(timeout 3 i2cdetect -y 1 2>/dev/null | grep -c "^[0-9]" || echo "0")
             I2C_DEVICES="${I2C_DEVICES} bus(es) scanned"
         else
             I2C_DEVICES="i2c-tools not installed"
@@ -247,10 +247,10 @@ detect_extended_hardware() {
         GPIO_STATUS="not available"
     fi
     
-    # USB devices
+    # USB devices (with timeout)
     if command -v lsusb &>/dev/null; then
-        USB_DEVICES=$(lsusb 2>/dev/null | wc -l || echo "0")
-        USB_DEVICE_LIST=$(lsusb 2>/dev/null | grep -v "hub" | head -5 || echo "none")
+        USB_DEVICES=$(timeout 5 lsusb 2>/dev/null | wc -l || echo "0")
+        USB_DEVICE_LIST=$(timeout 5 lsusb 2>/dev/null | grep -vi "hub" | head -5 || echo "none")
     else
         USB_DEVICES="lsusb not available"
         USB_DEVICE_LIST=""
@@ -261,7 +261,7 @@ detect_extended_hardware() {
     
     # WiFi status
     if command -v iwconfig &>/dev/null; then
-        WIFI_INTERFACE=$(iwconfig 2>/dev/null | grep -o "^wlan[0-9]" | head -1 || echo "none")
+        WIFI_INTERFACE=$(timeout 3 iwconfig 2>/dev/null | grep -o "^wlan[0-9]" | head -1 || echo "none")
     else
         WIFI_INTERFACE=$(ip link show 2>/dev/null | grep -o "wlan[0-9]" | head -1 || echo "none")
     fi
@@ -960,7 +960,7 @@ install_motd() {
 #===============================================================================
 # Echolume's Fun Homelab — Dynamic MOTD
 # lab.hoens.fun
-# Version: 6 (occasional tips)
+# Version: 7 (with OS info)
 #===============================================================================
 
 # Colors
@@ -1043,6 +1043,18 @@ else
     PI_MODEL="Linux"
 fi
 
+# OS info
+if [[ -f /etc/os-release ]]; then
+    source /etc/os-release
+    OS_NAME="${ID^} ${VERSION_ID:-}"  # e.g., "Debian 13"
+    [[ -n "$VERSION_CODENAME" ]] && OS_NAME+=" (${VERSION_CODENAME})"
+else
+    OS_NAME="Linux"
+fi
+
+# Kernel (short)
+KERNEL_SHORT=$(uname -r | cut -d'-' -f1)
+
 # Temperature with color coding
 if [[ -f /sys/class/thermal/thermal_zone0/temp ]]; then
     TEMP_RAW=$(cat /sys/class/thermal/thermal_zone0/temp)
@@ -1059,8 +1071,8 @@ else
     TEMP_STR="${C_DIM}N/A${C_RESET}"
 fi
 
-# CPU usage
-CPU_USAGE=$(top -bn1 2>/dev/null | grep "Cpu(s)" | awk '{print int($2)}' || echo "?")
+# CPU usage (with timeout to prevent hang on slow systems)
+CPU_USAGE=$(timeout 2 top -bn1 2>/dev/null | grep "Cpu(s)" | awk '{print int($2)}' || echo "?")
 
 # RAM with color
 RAM_TOTAL=$(free -m | awk '/^Mem:/ {print $2}')
@@ -1104,6 +1116,7 @@ boxline "${C_BOLD}${C_WHITE}${HOSTNAME_UPPER}${C_RESET}                         
 boxline "${C_DIM}\"${TAGLINE}\"${C_RESET}"
 echo -e "${C_CYAN}├───────────────────────────────────────────────────────────┤${C_RESET}"
 boxline "${PI_MODEL}                       ${C_DIM}Up${C_RESET} ${UPTIME_STR}"
+boxline "${C_DIM}${OS_NAME} · Kernel ${KERNEL_SHORT}${C_RESET}"
 boxline "${TEMP_STR}   ${C_DIM}CPU${C_RESET} ${CPU_USAGE}%   ${C_DIM}RAM${C_RESET} ${RAM_STR}   ${C_DIM}Disk${C_RESET} ${DISK_STR} ${C_DIM}(${DISK_USED}/${DISK_TOTAL})${C_RESET}"
 boxline "${IP_ADDR} ${C_DIM}(${NET_IF})${C_RESET}"
 
@@ -1120,6 +1133,12 @@ MOTD_SCRIPT
 
     # Make it executable
     sudo chmod +x /etc/profile.d/99-echolume-motd.sh
+    
+    # Remove the default Debian disclaimer (/etc/motd)
+    if [[ -f /etc/motd ]] && [[ -s /etc/motd ]]; then
+        log "Removing default /etc/motd disclaimer..."
+        sudo truncate -s 0 /etc/motd
+    fi
     
     # Disable default MOTD components that clutter the login
     if [[ -d /etc/update-motd.d ]]; then
@@ -1370,13 +1389,13 @@ EOF
 main() {
     echo ""
     echo -e "${BOLD}${CYAN}╔═══════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BOLD}${CYAN}║     PI-BOOTSTRAP — ADHD-Friendly Shell Setup  (v6)        ║${NC}"
+    echo -e "${BOLD}${CYAN}║     PI-BOOTSTRAP — ADHD-Friendly Shell Setup  (v7)        ║${NC}"
     echo -e "${BOLD}${CYAN}║     by Echolume · lab.hoens.fun                           ║${NC}"
     echo -e "${BOLD}${CYAN}╚═══════════════════════════════════════════════════════════╝${NC}"
     echo ""
     
     # Initialize log
-    echo "=== pi-bootstrap.sh v6 started $(date -Iseconds) ===" > "$LOG_FILE"
+    echo "=== pi-bootstrap.sh v7 started $(date -Iseconds) ===" > "$LOG_FILE"
     
     # Info-only mode
     if [[ "$INFO_ONLY" == true ]]; then
