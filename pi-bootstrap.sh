@@ -384,7 +384,7 @@ backup_configs() {
         if [[ -f "$file" ]]; then
             cp "$file" "$BACKUP_DIR/"
             success "Backed up: $file"
-            ((backed_up++))
+            ((backed_up++)) || true
         fi
     done
     
@@ -513,7 +513,7 @@ install_plugins() {
             success "zsh-autosuggestions installed"
         else
             error "zsh-autosuggestions failed"
-            ((plugin_failures++))
+            ((plugin_failures++)) || true
         fi
     else
         warn "zsh-autosuggestions already present"
@@ -527,7 +527,7 @@ install_plugins() {
             success "zsh-syntax-highlighting installed"
         else
             error "zsh-syntax-highlighting failed"
-            ((plugin_failures++))
+            ((plugin_failures++)) || true
         fi
     else
         warn "zsh-syntax-highlighting already present"
@@ -593,7 +593,7 @@ install_fonts() {
             log "Downloading: $decoded_font"
             if ! curl -fsSL -o "$font_dir/$decoded_font" "$base_url/$font"; then
                 warn "Failed to download $decoded_font"
-                ((font_failures++))
+                ((font_failures++)) || true
             fi
         fi
     done
@@ -1160,7 +1160,7 @@ apply_optimizations() {
             success "Swappiness reduced"
         else
             error "Failed to set swappiness"
-            ((opt_failures++))
+            ((opt_failures++)) || true
         fi
     else
         success "Swappiness already optimal"
@@ -1176,7 +1176,7 @@ apply_optimizations() {
                 success "Journald limited"
             else
                 error "Failed to configure journald"
-                ((opt_failures++))
+                ((opt_failures++)) || true
             fi
         else
             success "Journald already limited"
