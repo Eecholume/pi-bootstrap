@@ -1,7 +1,7 @@
 #!/bin/bash
 #===============================================================================
 # pi-bootstrap.sh — Echolume's ADHD-Friendly Pi Shell Setup
-# Version: 13
+# Version: 14
 #
 # WHAT:  Installs zsh + oh-my-zsh + powerlevel10k with sane defaults
 # WHY:   Reduce cognitive load; make CLI accessible
@@ -646,13 +646,20 @@ generate_zshrc() {
 # ADHD-Friendly Configuration
 #===============================================================================
 
+#-------------------------------------------------------------------------------
+# MOTD (must run BEFORE instant prompt to avoid p10k warning)
+#-------------------------------------------------------------------------------
+if [[ -o login && -f /etc/profile.d/99-echolume-motd.sh ]]; then
+    bash /etc/profile.d/99-echolume-motd.sh
+fi
+
 # Path to oh-my-zsh installation
 export ZSH="$HOME/.oh-my-zsh"
 
 # Theme: powerlevel10k
 ZSH_THEME="powerlevel10k/powerlevel10k"
 
-# Enable instant prompt (faster startup)
+# Enable instant prompt (faster startup) — must come after MOTD
 if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]; then
   source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
 fi
@@ -758,13 +765,6 @@ ZSH_AUTOSUGGEST_BUFFER_MAX_SIZE=20
 # LOAD P10K CONFIG
 #-------------------------------------------------------------------------------
 [[ -f ~/.p10k.zsh ]] && source ~/.p10k.zsh
-
-#-------------------------------------------------------------------------------
-# MOTD (login shells only - SSH, console)
-#-------------------------------------------------------------------------------
-if [[ -o login && -f /etc/profile.d/99-echolume-motd.sh ]]; then
-    bash /etc/profile.d/99-echolume-motd.sh
-fi
 
 #-------------------------------------------------------------------------------
 # CUSTOM PATH ADDITIONS (add your own below)
@@ -973,7 +973,7 @@ install_motd() {
 #===============================================================================
 # Echolume's Fun Homelab — Dynamic MOTD
 # lab.hoens.fun
-# Version: 13
+# Version: 14
 #===============================================================================
 
 # Colors
@@ -1352,13 +1352,13 @@ print_summary() {
 main() {
     echo ""
     echo -e "${BOLD}${CYAN}╔═══════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BOLD}${CYAN}║     PI-BOOTSTRAP — ADHD-Friendly Shell Setup  (v13)       ║${NC}"
+    echo -e "${BOLD}${CYAN}║     PI-BOOTSTRAP — ADHD-Friendly Shell Setup  (v14)       ║${NC}"
     echo -e "${BOLD}${CYAN}║     by Echolume · lab.hoens.fun                           ║${NC}"
     echo -e "${BOLD}${CYAN}╚═══════════════════════════════════════════════════════════╝${NC}"
     echo ""
     
     # Initialize log
-    echo "=== pi-bootstrap.sh v13 started $(date -Iseconds) ===" > "$LOG_FILE"
+    echo "=== pi-bootstrap.sh v14 started $(date -Iseconds) ===" > "$LOG_FILE"
     
     # Info-only mode
     if [[ "$INFO_ONLY" == true ]]; then
