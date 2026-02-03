@@ -1,7 +1,7 @@
 #!/bin/bash
 #===============================================================================
 # pi-bootstrap.sh — Echolume's ADHD-Friendly Pi Shell Setup
-# Version: 10
+# Version: 11
 #
 # WHAT:  Installs zsh + oh-my-zsh + powerlevel10k with sane defaults
 # WHY:   Reduce cognitive load; make CLI accessible
@@ -763,7 +763,7 @@ ZSH_AUTOSUGGEST_BUFFER_MAX_SIZE=20
 # MOTD (login shells only - SSH, console)
 #-------------------------------------------------------------------------------
 if [[ -o login && -f /etc/profile.d/99-echolume-motd.sh ]]; then
-    source /etc/profile.d/99-echolume-motd.sh
+    bash /etc/profile.d/99-echolume-motd.sh
 fi
 
 #-------------------------------------------------------------------------------
@@ -973,7 +973,7 @@ install_motd() {
 #===============================================================================
 # Echolume's Fun Homelab — Dynamic MOTD
 # lab.hoens.fun
-# Version: 10
+# Version: 11 (fixed alignment)
 #===============================================================================
 
 # Colors
@@ -986,13 +986,13 @@ C_YELLOW='\033[0;33m'
 C_CYAN='\033[0;36m'
 C_WHITE='\033[1;37m'
 
-# Box width (inner content = 57 chars)
+# Box width (inner content)
 BOX_W=57
 
 # Taglines — random on each login
 TAGLINES=(
     "It compiles. Ship it."
-    "Works on my machine ™"
+    "Works on my machine"
     "Working as intended. Probably."
     "TODO: document this later"
     "Powered by caffeine and spite"
@@ -1001,11 +1001,9 @@ TAGLINES=(
     "sudo make me a sandwich"
     "DNS: it's always DNS"
     "There's no place like 127.0.0.1"
-    "I'll refactor this tomorrow"
     "Not a bug, a surprise feature"
     "Held together with zip ties"
     "Future me problem"
-    "git commit -m 'fixed stuff'"
     "chmod 777 and pray"
     "Over-engineered with love"
     "99% uptime, 1% dread"
@@ -1015,39 +1013,51 @@ TAGLINES=(
 
 # Tips — shown ~30% of logins
 TIPS=(
-    "btop → pretty system monitor"
-    "ncdu → find what's eating disk"
-    "z dirname → jump to frequent dirs"
-    "Ctrl+R → search command history"
-    "temp → check CPU temperature"
-    "ports → see what's listening"
-    "!! → repeat last command"
-    "sudo !! → last command as root"
-    "duf → disk usage by folder"
-    "raspi-config → hardware settings"
-    "systemctl status <svc> → is it running?"
-    "journalctl -f → live system logs"
-    "Consider running 'update' weekly"
-    "Ctrl+L → clear screen"
-    "tldr <cmd> → simpler man pages"
+    "btop = pretty system monitor"
+    "ncdu = find what's eating disk"
+    "z dirname = jump to frequent dirs"
+    "Ctrl+R = search command history"
+    "temp = check CPU temperature"
+    "ports = see what's listening"
+    "!! = repeat last command"
+    "sudo !! = last command as root"
+    "Ctrl+L = clear screen"
 )
 
 # Pick random tagline
-TAGLINE="${TAGLINES[$RANDOM % ${#TAGLINES[@]}]}"
+TAGLINE="${TAGLINES[$((RANDOM % ${#TAGLINES[@]}))]}"
 
-# Helper: print a line with auto-padding to box width
+# Strip ANSI codes for length calculation
+strip_ansi() {
+    echo -e "$1" | sed 's/\x1b\[[0-9;]*m//g'
+}
+
+# Print single line with right padding
 boxline() {
     local content="$1"
-    local plain=$(echo -e "$content" | sed 's/\x1b\[[0-9;]*m//g')
+    local plain=$(strip_ansi "$content")
     local len=${#plain}
     local pad=$((BOX_W - len))
     (( pad < 0 )) && pad=0
     printf "${C_CYAN}│${C_RESET} %b%*s ${C_CYAN}│${C_RESET}\n" "$content" "$pad" ""
 }
 
+# Print two-column line (left and right aligned)
+boxline2() {
+    local left="$1"
+    local right="$2"
+    local left_plain=$(strip_ansi "$left")
+    local right_plain=$(strip_ansi "$right")
+    local left_len=${#left_plain}
+    local right_len=${#right_plain}
+    local gap=$((BOX_W - left_len - right_len))
+    (( gap < 1 )) && gap=1
+    printf "${C_CYAN}│${C_RESET} %b%*s%b ${C_CYAN}│${C_RESET}\n" "$left" "$gap" "" "$right"
+}
+
 # Gather system info
 HOSTNAME_UPPER=$(hostname | tr '[:lower:]' '[:upper:]')
-UPTIME_STR=$(uptime -p 2>/dev/null | sed 's/up //' || echo "unknown")
+UPTIME_STR=$(uptime -p 2>/dev/null | sed 's/up /Up /' || echo "Up ?")
 
 # Model (short version)
 if [[ -f /proc/device-tree/model ]]; then
@@ -1058,23 +1068,23 @@ fi
 
 # OS info
 if [[ -f /etc/os-release ]]; then
-    source /etc/os-release
-    OS_NAME="${ID^} ${VERSION_ID:-}"  # e.g., "Debian 13"
-    [[ -n "$VERSION_CODENAME" ]] && OS_NAME+=" (${VERSION_CODENAME})"
+    . /etc/os-release
+    OS_INFO="${ID^} ${VERSION_ID:-}"
+    [[ -n "$VERSION_CODENAME" ]] && OS_INFO+=" (${VERSION_CODENAME})"
 else
-    OS_NAME="Linux"
+    OS_INFO="Linux"
 fi
 
-# Kernel (short)
-KERNEL_SHORT=$(uname -r | cut -d'-' -f1)
+# Kernel (just major.minor.patch)
+KERNEL_VER=$(uname -r | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+')
 
 # Temperature with color coding
 if [[ -f /sys/class/thermal/thermal_zone0/temp ]]; then
     TEMP_RAW=$(cat /sys/class/thermal/thermal_zone0/temp)
     TEMP_C=$((TEMP_RAW / 1000))
-    if [[ $TEMP_C -lt 50 ]]; then
+    if (( TEMP_C < 50 )); then
         TEMP_COLOR="${C_GREEN}"
-    elif [[ $TEMP_C -lt 65 ]]; then
+    elif (( TEMP_C < 65 )); then
         TEMP_COLOR="${C_YELLOW}"
     else
         TEMP_COLOR="${C_RED}"
@@ -1084,63 +1094,59 @@ else
     TEMP_STR="${C_DIM}N/A${C_RESET}"
 fi
 
-# CPU usage (with timeout to prevent hang on slow systems)
-CPU_USAGE=$(timeout 2 top -bn1 2>/dev/null | grep "Cpu(s)" | awk '{print int($2)}' || echo "?")
+# CPU usage (with timeout)
+CPU_PCT=$(timeout 2 top -bn1 2>/dev/null | awk '/Cpu\(s\)/{print int($2)}')
+[[ -z "$CPU_PCT" ]] && CPU_PCT="?"
 
 # RAM with color
-RAM_TOTAL=$(free -m | awk '/^Mem:/ {print $2}')
-RAM_USED=$(free -m | awk '/^Mem:/ {print $3}')
+read -r RAM_USED RAM_TOTAL <<< $(free -m | awk '/^Mem:/{print $3, $2}')
 RAM_PCT=$((RAM_USED * 100 / RAM_TOTAL))
-if [[ $RAM_PCT -lt 70 ]]; then
+if (( RAM_PCT < 70 )); then
     RAM_COLOR="${C_GREEN}"
-elif [[ $RAM_PCT -lt 85 ]]; then
+elif (( RAM_PCT < 85 )); then
     RAM_COLOR="${C_YELLOW}"
 else
     RAM_COLOR="${C_RED}"
 fi
-RAM_STR="${RAM_COLOR}${RAM_PCT}%${C_RESET}"
 
 # Disk with color
-DISK_PCT=$(df / | awk 'NR==2 {print $5}' | tr -d '%')
-DISK_USED=$(df -h / | awk 'NR==2 {print $3}')
-DISK_TOTAL=$(df -h / | awk 'NR==2 {print $2}')
-if [[ $DISK_PCT -lt 70 ]]; then
+read -r DISK_USED DISK_TOTAL DISK_PCT <<< $(df -h / | awk 'NR==2{gsub(/%/,"",$5); print $3, $2, $5}')
+if (( DISK_PCT < 70 )); then
     DISK_COLOR="${C_GREEN}"
-elif [[ $DISK_PCT -lt 85 ]]; then
+elif (( DISK_PCT < 85 )); then
     DISK_COLOR="${C_YELLOW}"
 else
     DISK_COLOR="${C_RED}"
 fi
-DISK_STR="${DISK_COLOR}${DISK_PCT}%${C_RESET}"
 
-# IP address and interface (with timeouts to prevent hang)
-IP_ADDR=$(timeout 2 hostname -I 2>/dev/null | awk '{print $1}' || echo "unknown")
-if command -v ip &>/dev/null; then
-    NET_IF=$(timeout 2 ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if ($i=="dev") {print $(i+1); exit}}' || true)
-    [[ -z "$NET_IF" ]] && NET_IF="eth0"
-else
-    NET_IF="eth0"
-fi
+# IP address and interface
+IP_ADDR=$(timeout 2 hostname -I 2>/dev/null | awk '{print $1}')
+[[ -z "$IP_ADDR" ]] && IP_ADDR="unknown"
+NET_IF=$(timeout 2 ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++)if($i=="dev"){print $(i+1);exit}}')
+[[ -z "$NET_IF" ]] && NET_IF="eth0"
+
+# Build stats line
+STATS="${TEMP_STR}  ${C_DIM}CPU${C_RESET} ${CPU_PCT}%  ${C_DIM}RAM${C_RESET} ${RAM_COLOR}${RAM_PCT}%${C_RESET}  ${C_DIM}Disk${C_RESET} ${DISK_COLOR}${DISK_PCT}%${C_RESET} ${C_DIM}(${DISK_USED}/${DISK_TOTAL})${C_RESET}"
 
 # Print the MOTD
 echo ""
-echo -e "${C_CYAN}╭───────────────────────────────────────────────────────────╮${C_RESET}"
-boxline "${C_BOLD}${C_WHITE}${HOSTNAME_UPPER}${C_RESET}                                  ${C_DIM}lab.hoens.fun${C_RESET}"
+printf "${C_CYAN}╭─────────────────────────────────────────────────────────────╮${C_RESET}\n"
+boxline2 "${C_BOLD}${C_WHITE}${HOSTNAME_UPPER}${C_RESET}" "${C_DIM}lab.hoens.fun${C_RESET}"
 boxline "${C_DIM}\"${TAGLINE}\"${C_RESET}"
-echo -e "${C_CYAN}├───────────────────────────────────────────────────────────┤${C_RESET}"
-boxline "${PI_MODEL}                       ${C_DIM}Up${C_RESET} ${UPTIME_STR}"
-boxline "${C_DIM}${OS_NAME} · Kernel ${KERNEL_SHORT}${C_RESET}"
-boxline "${TEMP_STR}   ${C_DIM}CPU${C_RESET} ${CPU_USAGE}%   ${C_DIM}RAM${C_RESET} ${RAM_STR}   ${C_DIM}Disk${C_RESET} ${DISK_STR} ${C_DIM}(${DISK_USED}/${DISK_TOTAL})${C_RESET}"
+printf "${C_CYAN}├─────────────────────────────────────────────────────────────┤${C_RESET}\n"
+boxline2 "${PI_MODEL}" "${UPTIME_STR}"
+boxline "${C_DIM}${OS_INFO} · Kernel ${KERNEL_VER}${C_RESET}"
+boxline "${STATS}"
 boxline "${IP_ADDR} ${C_DIM}(${NET_IF})${C_RESET}"
 
-# ~30% chance to show a tip (RANDOM % 10 < 3)
+# ~30% chance to show a tip
 if (( RANDOM % 10 < 3 )); then
-    TIP="${TIPS[$RANDOM % ${#TIPS[@]}]}"
-    echo -e "${C_CYAN}├───────────────────────────────────────────────────────────┤${C_RESET}"
-    boxline "${C_DIM}💡 ${TIP}${C_RESET}"
+    TIP="${TIPS[$((RANDOM % ${#TIPS[@]}))]}"
+    printf "${C_CYAN}├─────────────────────────────────────────────────────────────┤${C_RESET}\n"
+    boxline "${C_DIM}tip: ${TIP}${C_RESET}"
 fi
 
-echo -e "${C_CYAN}╰───────────────────────────────────────────────────────────╯${C_RESET}"
+printf "${C_CYAN}╰─────────────────────────────────────────────────────────────╯${C_RESET}\n"
 echo ""
 MOTD_SCRIPT
 
@@ -1346,13 +1352,13 @@ print_summary() {
 main() {
     echo ""
     echo -e "${BOLD}${CYAN}╔═══════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BOLD}${CYAN}║     PI-BOOTSTRAP — ADHD-Friendly Shell Setup  (v10)       ║${NC}"
+    echo -e "${BOLD}${CYAN}║     PI-BOOTSTRAP — ADHD-Friendly Shell Setup  (v11)       ║${NC}"
     echo -e "${BOLD}${CYAN}║     by Echolume · lab.hoens.fun                           ║${NC}"
     echo -e "${BOLD}${CYAN}╚═══════════════════════════════════════════════════════════╝${NC}"
     echo ""
     
     # Initialize log
-    echo "=== pi-bootstrap.sh v10 started $(date -Iseconds) ===" > "$LOG_FILE"
+    echo "=== pi-bootstrap.sh v11 started $(date -Iseconds) ===" > "$LOG_FILE"
     
     # Info-only mode
     if [[ "$INFO_ONLY" == true ]]; then
