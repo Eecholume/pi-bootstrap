@@ -471,6 +471,8 @@ install_packages() {
         ncdu
         tree
         jq
+        # ADHD helper: suggests packages when a command isn't found
+        command-not-found
     )
     
     log "Installing: ${packages[*]}"
@@ -657,9 +659,6 @@ export ZSH="$HOME/.oh-my-zsh"
 # Theme: powerlevel10k
 ZSH_THEME="powerlevel10k/powerlevel10k"
 
-# Prevent p10k wizard from overriding our config
-POWERLEVEL9K_DISABLE_CONFIGURATION_WIZARD=true
-
 # Enable instant prompt (faster startup) — must come after MOTD
 if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]; then
   source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
@@ -698,10 +697,21 @@ setopt AUTO_PUSHD              # Push dirs onto stack automatically
 setopt PUSHD_IGNORE_DUPS       # No duplicate dirs in stack
 setopt PUSHD_SILENT            # Don't print stack after pushd/popd
 
+# Auto-ls after cd — immediately see what's in the directory
+chpwd() { ls --color=auto }
+
 # Completion improvements
 setopt COMPLETE_IN_WORD        # Complete from cursor position
 setopt ALWAYS_TO_END           # Move cursor to end after completion
 zstyle ':completion:*' menu select  # Arrow-key menu for completions
+
+# Up/Down arrow partial history search
+# Type "git" then press ↑ to find previous git commands
+autoload -U up-line-or-beginning-search down-line-or-beginning-search
+zle -N up-line-or-beginning-search
+zle -N down-line-or-beginning-search
+bindkey "^[[A" up-line-or-beginning-search    # Up arrow
+bindkey "^[[B" down-line-or-beginning-search  # Down arrow
 
 #-------------------------------------------------------------------------------
 # SAFETY ALIASES (confirm before overwrite/delete)
@@ -763,6 +773,41 @@ ZSH_AUTOSUGGEST_STRATEGY=(history completion)
 ZSH_AUTOSUGGEST_BUFFER_MAX_SIZE=20
 
 #-------------------------------------------------------------------------------
+# COLORED MAN PAGES (easier to scan)
+#-------------------------------------------------------------------------------
+export LESS_TERMCAP_mb=$'\e[1;31m'    # begin bold (red)
+export LESS_TERMCAP_md=$'\e[1;36m'    # begin bold mode (cyan — headings)
+export LESS_TERMCAP_me=$'\e[0m'       # end bold mode
+export LESS_TERMCAP_so=$'\e[1;33;44m' # begin standout (yellow on blue — search hits)
+export LESS_TERMCAP_se=$'\e[0m'       # end standout
+export LESS_TERMCAP_us=$'\e[1;32m'    # begin underline (green — flags/args)
+export LESS_TERMCAP_ue=$'\e[0m'       # end underline
+
+#-------------------------------------------------------------------------------
+# TERMINAL TITLE + LONG COMMAND NOTIFICATION
+# Title: shows user@host:dir — helps identify tabs/windows
+# Bell: rings after commands >30s — catches your attention on task switch
+#-------------------------------------------------------------------------------
+TBEEP=30
+preexec()  { _CMD_START=$EPOCHSECONDS }
+precmd()   {
+    print -Pn "\e]2;%n@%m: %~\a"
+    if (( _CMD_START && EPOCHSECONDS - _CMD_START >= TBEEP )); then
+        print "\a"
+    fi
+    _CMD_START=0
+}
+
+#-------------------------------------------------------------------------------
+# COMMAND NOT FOUND — suggest the right package
+#-------------------------------------------------------------------------------
+if [[ -f /etc/zsh_command_not_found ]]; then
+    source /etc/zsh_command_not_found
+elif command -v pkgfile &>/dev/null; then
+    command_not_found_handler() { pkgfile "$1" }
+fi
+
+#-------------------------------------------------------------------------------
 # LOAD P10K CONFIG
 #-------------------------------------------------------------------------------
 [[ -f ~/.p10k.zsh ]] && source ~/.p10k.zsh
@@ -790,7 +835,11 @@ generate_p10k_config() {
         generate_p10k_lite
     fi
     
+    # Clear stale instant prompt cache so new config renders cleanly
+    rm -f "$HOME/.cache/p10k-instant-prompt-"*.zsh 2>/dev/null
+
     success ".p10k.zsh generated (tier: $TIER)"
+    log "Tip: run 'p10k configure' anytime to customize your prompt style"
     track_status "Generate .p10k.zsh" "OK"
 }
 
