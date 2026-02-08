@@ -1,7 +1,7 @@
 #!/bin/bash
 #===============================================================================
 # pi-bootstrap.sh — Echolume's ADHD-Friendly Pi Shell Setup
-# Version: 14
+# Version: 15
 #
 # WHAT:  Installs zsh + oh-my-zsh + powerlevel10k with sane defaults
 # WHY:   Reduce cognitive load; make CLI accessible
@@ -755,6 +755,155 @@ alias gl='git log --oneline -20'
 alias gp='git pull'
 
 #-------------------------------------------------------------------------------
+# ALIAS MANAGER
+#-------------------------------------------------------------------------------
+# Usage: aliases              — show all custom aliases
+#        aliases search <str> — filter aliases by keyword
+#        aliases add <name> <command>  — add a custom alias
+#        aliases remove <name>         — remove a custom alias
+#        aliases help          — show usage
+CUSTOM_ALIAS_FILE="\$HOME/.zsh_custom_aliases"
+[[ -f "\$CUSTOM_ALIAS_FILE" ]] && source "\$CUSTOM_ALIAS_FILE"
+
+aliases() {
+    local C_R='\033[0m' C_B='\033[1m' C_D='\033[2m' C_C='\033[0;36m' C_G='\033[0;32m' C_Y='\033[1;33m' C_W='\033[1;37m' C_RED='\033[0;31m'
+    local subcmd="\${1:-}"
+
+    _aliases_header() {
+        printf "\${C_C}╭────────────────────────────────────────────────────────╮\${C_R}\n"
+        printf "\${C_C}│\${C_R} \${C_B}\${C_W}Pi-Bootstrap Alias Manager\${C_R}                             \${C_C}│\${C_R}\n"
+        printf "\${C_C}├────────────────────────────────────────────────────────┤\${C_R}\n"
+    }
+    _aliases_footer() {
+        printf "\${C_C}╰────────────────────────────────────────────────────────╯\${C_R}\n"
+    }
+    _aliases_section() {
+        printf "\${C_C}│\${C_R}                                                        \${C_C}│\${C_R}\n"
+        printf "\${C_C}│\${C_R} \${C_B}\${C_Y}%s\${C_R}%*s\${C_C}│\${C_R}\n" "\$1" \$((55 - \${#1})) ""
+        printf "\${C_C}│\${C_R} \${C_D}%s\${C_R}%*s\${C_C}│\${C_R}\n" "────────────────────────────────────────────────────" 1 ""
+    }
+    _aliases_row() {
+        local name="\$1" desc="\$2"
+        local padname=12
+        local padded=\$(printf "%-\${padname}s" "\$name")
+        local total=\$(( \${#padded} + \${#desc} ))
+        local gap=\$((54 - total))
+        (( gap < 0 )) && gap=0
+        printf "\${C_C}│\${C_R}  \${C_G}%-\${padname}s\${C_R} \${C_D}%s\${C_R}%*s\${C_C}│\${C_R}\n" "\$name" "\$desc" "\$gap" ""
+    }
+
+    case "\$subcmd" in
+        help|-h|--help)
+            _aliases_header
+            _aliases_section "Usage"
+            _aliases_row "aliases" "show all aliases"
+            _aliases_row "aliases search" "<keyword> — filter list"
+            _aliases_row "aliases add" "<name> <cmd> — add alias"
+            _aliases_row "aliases remove" "<name> — remove alias"
+            _aliases_row "aliases help" "this help message"
+            _aliases_footer
+            ;;
+        search)
+            local query="\${2:-}"
+            if [[ -z "\$query" ]]; then
+                echo "Usage: aliases search <keyword>"
+                return 1
+            fi
+            _aliases_header
+            _aliases_section "Search: \$query"
+            alias | grep -i "\$query" | while IFS= read -r line; do
+                local aname="\${line%%=*}"
+                local acmd="\${line#*=}"
+                acmd="\${acmd#[\\'\\"]}"
+                acmd="\${acmd%[\\'\\"]}"
+                [[ \${#acmd} -gt 38 ]] && acmd="\${acmd:0:35}..."
+                _aliases_row "\$aname" "\$acmd"
+            done
+            _aliases_footer
+            ;;
+        add)
+            local aname="\${2:-}" acmd="\${*:3}"
+            if [[ -z "\$aname" || -z "\$acmd" ]]; then
+                echo "Usage: aliases add <name> <command>"
+                return 1
+            fi
+            echo "alias \$aname='\$acmd'" >> "\$CUSTOM_ALIAS_FILE"
+            eval "alias \$aname='\$acmd'"
+            printf "\${C_G}✓\${C_R} Alias \${C_B}%s\${C_R} → %s  \${C_D}(saved to %s)\${C_R}\n" "\$aname" "\$acmd" "\$CUSTOM_ALIAS_FILE"
+            ;;
+        remove|rm)
+            local aname="\${2:-}"
+            if [[ -z "\$aname" ]]; then
+                echo "Usage: aliases remove <name>"
+                return 1
+            fi
+            if [[ -f "\$CUSTOM_ALIAS_FILE" ]] && grep -q "^alias \$aname=" "\$CUSTOM_ALIAS_FILE"; then
+                sed -i "/^alias \$aname=/d" "\$CUSTOM_ALIAS_FILE"
+                unalias "\$aname" 2>/dev/null
+                printf "\${C_RED}✗\${C_R} Alias \${C_B}%s\${C_R} removed  \${C_D}(updated %s)\${C_R}\n" "\$aname" "\$CUSTOM_ALIAS_FILE"
+            else
+                echo "Alias '\$aname' not found in custom aliases."
+                echo "Note: built-in aliases from .zshrc cannot be removed here."
+                return 1
+            fi
+            ;;
+        *)
+            _aliases_header
+            _aliases_section "Safety"
+            _aliases_row "rm" "confirm before delete (rm -i)"
+            _aliases_row "cp" "confirm before overwrite (cp -i)"
+            _aliases_row "mv" "confirm before overwrite (mv -i)"
+            _aliases_section "Navigation"
+            _aliases_row ".." "up one directory"
+            _aliases_row "..." "up two directories"
+            _aliases_row "...." "up three directories"
+            _aliases_section "Listing & Search"
+            _aliases_row "ll" "detailed list (ls -lah)"
+            _aliases_row "la" "show hidden files (ls -A)"
+            _aliases_row "l" "compact columns (ls -CF)"
+            _aliases_row "grep" "colorized grep"
+            _aliases_section "System"
+            _aliases_row "update" "apt update + upgrade"
+            _aliases_row "reboot" "sudo reboot"
+            _aliases_row "shutdown" "sudo shutdown now"
+            _aliases_row "df" "disk free (human-readable)"
+            _aliases_row "du" "disk usage (human-readable)"
+            _aliases_row "duf" "folder sizes, sorted"
+            _aliases_section "Processes"
+            _aliases_row "psg" "<name> — search processes"
+            _aliases_row "topcpu" "top CPU consumers"
+            _aliases_row "topmem" "top memory consumers"
+            _aliases_section "Network"
+            _aliases_row "myip" "show public IP"
+            _aliases_row "ports" "listening ports"
+            _aliases_section "Raspberry Pi"
+            _aliases_row "temp" "CPU temperature"
+            _aliases_row "throttle" "throttle status"
+            _aliases_section "Git"
+            _aliases_row "gs" "git status"
+            _aliases_row "gd" "git diff"
+            _aliases_row "gl" "git log (last 20)"
+            _aliases_row "gp" "git pull"
+
+            # Show custom aliases if any exist
+            if [[ -f "\$CUSTOM_ALIAS_FILE" ]] && [[ -s "\$CUSTOM_ALIAS_FILE" ]]; then
+                _aliases_section "Custom (~/.zsh_custom_aliases)"
+                while IFS= read -r line; do
+                    [[ "\$line" =~ ^alias\\ (.+)=\\'(.+)\\'$ ]] || [[ "\$line" =~ ^alias\\ (.+)=\\"(.+)\\"$ ]] || continue
+                    local cname="\${match[1]}" ccmd="\${match[2]}"
+                    [[ \${#ccmd} -gt 38 ]] && ccmd="\${ccmd:0:35}..."
+                    _aliases_row "\$cname" "\$ccmd"
+                done < "\$CUSTOM_ALIAS_FILE"
+            fi
+
+            printf "\${C_C}│\${C_R}                                                        \${C_C}│\${C_R}\n"
+            printf "\${C_C}│\${C_R} \${C_D}Type \${C_C}aliases help\${C_D} for add/remove/search commands\${C_R}       \${C_C}│\${C_R}\n"
+            _aliases_footer
+            ;;
+    esac
+}
+
+#-------------------------------------------------------------------------------
 # AUTOSUGGESTION CONFIG
 #-------------------------------------------------------------------------------
 ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE='fg=8'
@@ -973,7 +1122,7 @@ install_motd() {
 #===============================================================================
 # Echolume's Fun Homelab — Dynamic MOTD
 # lab.hoens.fun
-# Version: 14
+# Version: 15
 #===============================================================================
 
 # Colors
@@ -1022,6 +1171,9 @@ TIPS=(
     "!! = repeat last command"
     "sudo !! = last command as root"
     "Ctrl+L = clear screen"
+    "aliases = show all shortcuts"
+    "aliases add <name> <cmd> = custom alias"
+    "aliases search <keyword> = filter list"
 )
 
 # Pick random tagline
@@ -1138,6 +1290,13 @@ boxline2 "${PI_MODEL}" "${UPTIME_STR}"
 boxline "${C_DIM}${OS_INFO} · Kernel ${KERNEL_VER}${C_RESET}"
 boxline "${STATS}"
 boxline "${IP_ADDR} ${C_DIM}(${NET_IF})${C_RESET}"
+
+# Alias quick-reference
+printf "${C_CYAN}├─────────────────────────────────────────────────────────────┤${C_RESET}\n"
+boxline "${C_BOLD}${C_WHITE}Quick Aliases${C_RESET}           ${C_DIM}type${C_RESET} ${C_CYAN}aliases${C_RESET} ${C_DIM}for full list${C_RESET}"
+boxline "${C_DIM}ll${C_RESET} list  ${C_DIM}..${C_RESET} up dir  ${C_DIM}update${C_RESET} apt  ${C_DIM}temp${C_RESET} CPU temp"
+boxline "${C_DIM}gs${C_RESET} git st ${C_DIM}gd${C_RESET} diff   ${C_DIM}myip${C_RESET} pub IP ${C_DIM}ports${C_RESET} listen"
+boxline "${C_DIM}topcpu${C_RESET} / ${C_DIM}topmem${C_RESET}   ${C_DIM}psg${C_RESET} proc search  ${C_DIM}duf${C_RESET} sizes"
 
 # ~30% chance to show a tip
 if (( RANDOM % 10 < 3 )); then
@@ -1352,13 +1511,13 @@ print_summary() {
 main() {
     echo ""
     echo -e "${BOLD}${CYAN}╔═══════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BOLD}${CYAN}║     PI-BOOTSTRAP — ADHD-Friendly Shell Setup  (v14)       ║${NC}"
+    echo -e "${BOLD}${CYAN}║     PI-BOOTSTRAP — ADHD-Friendly Shell Setup  (v15)       ║${NC}"
     echo -e "${BOLD}${CYAN}║     by Echolume · lab.hoens.fun                           ║${NC}"
     echo -e "${BOLD}${CYAN}╚═══════════════════════════════════════════════════════════╝${NC}"
     echo ""
     
     # Initialize log
-    echo "=== pi-bootstrap.sh v14 started $(date -Iseconds) ===" > "$LOG_FILE"
+    echo "=== pi-bootstrap.sh v15 started $(date -Iseconds) ===" > "$LOG_FILE"
     
     # Info-only mode
     if [[ "$INFO_ONLY" == true ]]; then
