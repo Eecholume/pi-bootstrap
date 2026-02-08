@@ -1,18 +1,18 @@
 #!/bin/bash
 #===============================================================================
 # pi-bootstrap.sh — Echolume's ADHD-Friendly Pi Shell Setup
-# Version: 15
+# Version: 16
 #
 # WHAT:  Installs zsh + oh-my-zsh + powerlevel10k with sane defaults
 # WHY:   Reduce cognitive load; make CLI accessible
 # HOW:   Auto-detects hardware, picks FULL or LITE tier
 #
 # USAGE: curl -fsSL <url> | bash
-#    or: bash pi-bootstrap.sh [--optimize] [--update-os] [--no-chsh] [--info-only]
+#    or: bash pi-bootstrap.sh [--optimize] [--no-update] [--no-chsh] [--info-only]
 #
 # FLAGS:
 #   --optimize   Apply safe system tweaks (swappiness, journald limits)
-#   --update-os  Run apt upgrade (may include kernel/firmware packages)
+#   --no-update  Skip apt update/upgrade (default: updates run with kernel held)
 #   --no-chsh    Don't change default shell to zsh
 #   --info-only  Just print system info and exit (for pasting back to Cosmo)
 #   --no-motd    Skip MOTD installation
@@ -48,7 +48,7 @@ FAILURES=0
 # PARSE ARGUMENTS
 #-------------------------------------------------------------------------------
 DO_OPTIMIZE=false
-DO_UPDATE_OS=false
+DO_UPDATE=true
 DO_CHSH=true
 DO_MOTD=true
 INFO_ONLY=false
@@ -56,19 +56,19 @@ INFO_ONLY=false
 for arg in "$@"; do
     case $arg in
         --optimize)   DO_OPTIMIZE=true ;;
-        --update-os)  DO_UPDATE_OS=true ;;
+        --no-update)  DO_UPDATE=false ;;
         --no-chsh)    DO_CHSH=false ;;
         --no-motd)    DO_MOTD=false ;;
         --info-only)  INFO_ONLY=true ;;
         --help|-h)
-            echo "Usage: $0 [--optimize] [--update-os] [--no-chsh] [--no-motd] [--info-only]"
+            echo "Usage: $0 [--optimize] [--no-update] [--no-chsh] [--no-motd] [--info-only]"
             echo ""
             echo "Flags:"
-            echo "  --optimize   Apply safe system tweaks (swappiness, journald)"
-            echo "  --update-os  Run apt upgrade (may include kernel/firmware packages)"
-            echo "  --no-chsh    Don't change default shell to zsh"
-            echo "  --no-motd    Don't install custom MOTD"
-            echo "  --info-only  Just print system info and exit"
+            echo "  --optimize    Apply safe system tweaks (swappiness, journald)"
+            echo "  --no-update   Skip apt update/upgrade (runs by default, kernel held)"
+            echo "  --no-chsh     Don't change default shell to zsh"
+            echo "  --no-motd     Don't install custom MOTD"
+            echo "  --info-only   Just print system info and exit"
             exit 0
             ;;
     esac
@@ -413,28 +413,65 @@ backup_configs() {
 }
 
 #-------------------------------------------------------------------------------
-# UPDATE OS (optional)
+# UPDATE OS (runs by default; skip with --no-update)
 #-------------------------------------------------------------------------------
+# Strategy: apt update + apt upgrade with kernel/firmware packages held.
+#   - DEBIAN_FRONTEND=noninteractive  → suppresses all interactive prompts
+#   - dpkg --force-confold             → keeps YOUR config files on conflicts
+#   - apt-mark hold on kernel pkgs     → prevents kernel upgrades that break
+#                                        DKMS modules (Hailo, camera, etc.)
+#   - apt upgrade (NOT full-upgrade)   → never removes packages
+#-------------------------------------------------------------------------------
+APT_NONINTERACTIVE="sudo DEBIAN_FRONTEND=noninteractive"
+APT_DPKG_OPTS='-o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-confdef'
+
+# Kernel/firmware packages to hold during upgrade
+KERNEL_HOLD_PKGS=(
+    raspberrypi-kernel
+    raspberrypi-kernel-headers
+    raspberrypi-bootloader
+    linux-image-rpi-v8
+    linux-image-rpi-2712
+    linux-headers-rpi-v8
+    linux-headers-rpi-2712
+)
+
 update_os() {
     header "UPDATING OS PACKAGES"
-    
-    if [[ "$DO_UPDATE_OS" == false ]]; then
-        log "Skipping OS update (use --update-os flag to enable)"
+
+    if [[ "$DO_UPDATE" == false ]]; then
+        log "Skipping OS update (--no-update flag set)"
         track_status "OS Update" "SKIP"
         return 0
     fi
-    
+
+    # Hold kernel packages to prevent DKMS breakage
+    log "Holding kernel/firmware packages..."
+    local held=()
+    for pkg in "${KERNEL_HOLD_PKGS[@]}"; do
+        if dpkg -l "$pkg" &>/dev/null; then
+            sudo apt-mark hold "$pkg" &>/dev/null && held+=("$pkg")
+        fi
+    done
+    if [[ ${#held[@]} -gt 0 ]]; then
+        success "Held ${#held[@]} kernel pkg(s): ${held[*]}"
+    else
+        log "No installed kernel packages found to hold (non-Pi or custom setup)"
+    fi
+
+    # Update package lists
     log "Running apt update..."
-    if sudo apt-get update -qq; then
+    if $APT_NONINTERACTIVE apt-get update -qq; then
         success "Package lists updated"
     else
         error "apt update failed"
         track_status "OS Update" "FAIL"
         return 1
     fi
-    
+
+    # Upgrade packages (safe: never removes, never touches held kernel)
     log "Running apt upgrade (this may take a while)..."
-    if sudo apt-get upgrade -y -qq; then
+    if $APT_NONINTERACTIVE apt-get upgrade -y -qq $APT_DPKG_OPTS; then
         success "OS packages upgraded"
         track_status "OS Update" "OK"
     else
@@ -442,7 +479,7 @@ update_os() {
         track_status "OS Update" "FAIL"
         return 1
     fi
-    
+
     # Check if reboot needed
     if [[ -f /var/run/reboot-required ]]; then
         warn "Reboot required after updates"
@@ -454,14 +491,17 @@ update_os() {
 #-------------------------------------------------------------------------------
 install_packages() {
     header "INSTALLING PACKAGES"
-    
-    log "Updating package lists..."
-    if ! sudo apt-get update -qq; then
-        error "apt update failed"
-        track_status "Install Packages" "FAIL"
-        return 1
+
+    # Ensure package lists are fresh (skips if update_os already ran)
+    if [[ "$DO_UPDATE" == false ]]; then
+        log "Refreshing package lists (update was skipped)..."
+        if ! $APT_NONINTERACTIVE apt-get update -qq; then
+            error "apt update failed"
+            track_status "Install Packages" "FAIL"
+            return 1
+        fi
     fi
-    
+
     local packages=(
         zsh
         git
@@ -474,9 +514,9 @@ install_packages() {
         tree
         jq
     )
-    
+
     log "Installing: ${packages[*]}"
-    if sudo apt-get install -y -qq "${packages[@]}"; then
+    if $APT_NONINTERACTIVE apt-get install -y -qq $APT_DPKG_OPTS "${packages[@]}"; then
         success "Packages installed"
         track_status "Install Packages" "OK"
     else
@@ -1122,7 +1162,7 @@ install_motd() {
 #===============================================================================
 # Echolume's Fun Homelab — Dynamic MOTD
 # lab.hoens.fun
-# Version: 15
+# Version: 16
 #===============================================================================
 
 # Colors
@@ -1511,13 +1551,13 @@ print_summary() {
 main() {
     echo ""
     echo -e "${BOLD}${CYAN}╔═══════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BOLD}${CYAN}║     PI-BOOTSTRAP — ADHD-Friendly Shell Setup  (v15)       ║${NC}"
+    echo -e "${BOLD}${CYAN}║     PI-BOOTSTRAP — ADHD-Friendly Shell Setup  (v16)       ║${NC}"
     echo -e "${BOLD}${CYAN}║     by Echolume · lab.hoens.fun                           ║${NC}"
     echo -e "${BOLD}${CYAN}╚═══════════════════════════════════════════════════════════╝${NC}"
     echo ""
     
     # Initialize log
-    echo "=== pi-bootstrap.sh v15 started $(date -Iseconds) ===" > "$LOG_FILE"
+    echo "=== pi-bootstrap.sh v16 started $(date -Iseconds) ===" > "$LOG_FILE"
     
     # Info-only mode
     if [[ "$INFO_ONLY" == true ]]; then
