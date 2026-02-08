@@ -12,6 +12,13 @@ and get to the fun part.
 curl -fsSL https://raw.githubusercontent.com/Eecholume/pi-bootstrap/main/pi-bootstrap.sh | bash
 ```
 
+**On slow WiFi or flaky SSH?** Download first, then run:
+
+```bash
+curl -fsSL -o /tmp/pi-bootstrap.sh https://raw.githubusercontent.com/Eecholume/pi-bootstrap/main/pi-bootstrap.sh
+bash /tmp/pi-bootstrap.sh
+```
+
 Or clone and run locally:
 
 ```bash
@@ -76,8 +83,22 @@ The script auto-selects a tier based on your Pi's hardware:
 - **History**: 50k entries, deduplicated, shared across terminals, written immediately
 - **Auto-correction**: Suggests fixes for typos
 - **Auto-cd**: Type a directory name to `cd` into it
+- **Auto-ls**: Automatically lists directory contents after every `cd`
+- **Arrow key history search**: Type `git` then press Up to find previous git commands
+- **Colored man pages**: Cyan headings, green flags, yellow search hits
+- **Terminal title**: Shows `user@host: ~/dir` so you can identify tabs at a glance
+- **Long command bell**: Rings after commands that take >30s (helps with task-switching)
+- **Command not found**: Suggests which package to install when a command is missing
 - **Safety aliases**: `rm`, `cp`, `mv` prompt before overwriting
 - **Useful aliases**: `ll`, `..`, `update`, `temp`, `ports`, `myip`, `gs`/`gd`/`gl` for git
+- **Prompt customization**: Run `p10k configure` anytime to design a unique style per machine
+
+## Tested On
+
+- Raspberry Pi 5 (8GB) — Raspberry Pi OS Bookworm 64-bit
+- Raspberry Pi 5 (8GB) — Raspberry Pi OS Trixie 64-bit Lite
+
+Should work on any Pi model with Bookworm or newer. Debian/Ubuntu desktops likely work too.
 
 ## Requirements
 
