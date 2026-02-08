@@ -1,7 +1,7 @@
 #!/bin/bash
 #===============================================================================
 # pi-bootstrap.sh — Echolume's ADHD-Friendly Pi Shell Setup
-# Version: 16
+# Version: 17
 #
 # WHAT:  Installs zsh + oh-my-zsh + powerlevel10k with sane defaults
 # WHY:   Reduce cognitive load; make CLI accessible
@@ -98,6 +98,47 @@ header() {
     echo -e "${BOLD}${CYAN}═══════════════════════════════════════════════════════════${NC}" | tee -a "$LOG_FILE"
     echo -e "${BOLD}${CYAN}  $*${NC}" | tee -a "$LOG_FILE"
     echo -e "${BOLD}${CYAN}═══════════════════════════════════════════════════════════${NC}" | tee -a "$LOG_FILE"
+}
+
+# Spinner — run a command with an animated progress indicator
+# Usage: spin "Descriptive label" command arg1 arg2 ...
+# Returns the command's exit code. Output goes to log file.
+spin() {
+    local label="$1"
+    shift
+    local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+    local start=$SECONDS
+
+    # Run command in background, redirect output to log
+    "$@" >> "$LOG_FILE" 2>&1 &
+    local pid=$!
+
+    # Animate while process runs
+    local i=0
+    while kill -0 "$pid" 2>/dev/null; do
+        local elapsed=$(( SECONDS - start ))
+        local mins=$(( elapsed / 60 ))
+        local secs=$(( elapsed % 60 ))
+        printf "\r  ${CYAN}%s${NC} %s ${DIM}%d:%02d${NC} " "${frames[i++ % ${#frames[@]}]}" "$label" "$mins" "$secs"
+        sleep 0.1
+    done
+
+    # Get exit code
+    wait "$pid"
+    local rc=$?
+    local elapsed=$(( SECONDS - start ))
+    local mins=$(( elapsed / 60 ))
+    local secs=$(( elapsed % 60 ))
+
+    # Clear spinner line and print result
+    printf "\r%-${COLUMNS:-80}s\r" ""
+    if [[ $rc -eq 0 ]]; then
+        success "$label ${DIM}(${mins}m ${secs}s)${NC}"
+    else
+        error "$label failed ${DIM}(${mins}m ${secs}s)${NC}"
+    fi
+
+    return $rc
 }
 
 # Track step status
@@ -422,8 +463,8 @@ backup_configs() {
 #                                        DKMS modules (Hailo, camera, etc.)
 #   - apt upgrade (NOT full-upgrade)   → never removes packages
 #-------------------------------------------------------------------------------
-APT_NONINTERACTIVE="sudo DEBIAN_FRONTEND=noninteractive"
-APT_DPKG_OPTS='-o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-confdef'
+APT_ENV=(sudo env DEBIAN_FRONTEND=noninteractive)
+APT_DPKG_OPTS=(-o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-confdef)
 
 # Kernel/firmware packages to hold during upgrade
 KERNEL_HOLD_PKGS=(
@@ -460,25 +501,19 @@ update_os() {
     fi
 
     # Update package lists
-    log "Running apt update..."
-    if $APT_NONINTERACTIVE apt-get update -qq; then
-        success "Package lists updated"
-    else
-        error "apt update failed"
+    if ! spin "Refreshing package lists" \
+        "${APT_ENV[@]}" apt-get update -qq; then
         track_status "OS Update" "FAIL"
         return 1
     fi
 
     # Upgrade packages (safe: never removes, never touches held kernel)
-    log "Running apt upgrade (this may take a while)..."
-    if $APT_NONINTERACTIVE apt-get upgrade -y -qq $APT_DPKG_OPTS; then
-        success "OS packages upgraded"
-        track_status "OS Update" "OK"
-    else
-        error "apt upgrade failed"
+    if ! spin "Upgrading packages" \
+        "${APT_ENV[@]}" apt-get upgrade -y -qq "${APT_DPKG_OPTS[@]}"; then
         track_status "OS Update" "FAIL"
         return 1
     fi
+    track_status "OS Update" "OK"
 
     # Check if reboot needed
     if [[ -f /var/run/reboot-required ]]; then
@@ -494,9 +529,8 @@ install_packages() {
 
     # Ensure package lists are fresh (skips if update_os already ran)
     if [[ "$DO_UPDATE" == false ]]; then
-        log "Refreshing package lists (update was skipped)..."
-        if ! $APT_NONINTERACTIVE apt-get update -qq; then
-            error "apt update failed"
+        if ! spin "Refreshing package lists" \
+            "${APT_ENV[@]}" apt-get update -qq; then
             track_status "Install Packages" "FAIL"
             return 1
         fi
@@ -516,11 +550,10 @@ install_packages() {
     )
 
     log "Installing: ${packages[*]}"
-    if $APT_NONINTERACTIVE apt-get install -y -qq $APT_DPKG_OPTS "${packages[@]}"; then
-        success "Packages installed"
+    if spin "Installing packages (${#packages[@]} items)" \
+        "${APT_ENV[@]}" apt-get install -y -qq "${APT_DPKG_OPTS[@]}" "${packages[@]}"; then
         track_status "Install Packages" "OK"
     else
-        error "Package installation failed"
         track_status "Install Packages" "FAIL"
         return 1
     fi
@@ -538,12 +571,18 @@ install_ohmyzsh() {
         return 0
     fi
     
-    log "Installing oh-my-zsh (unattended)..."
-    if RUNZSH=no CHSH=no sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"; then
-        success "oh-my-zsh installed"
+    # Download install script first, then run with spinner
+    local omz_script
+    omz_script=$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh) || {
+        error "Failed to download oh-my-zsh installer"
+        track_status "Oh-My-Zsh" "FAIL"
+        return 1
+    }
+
+    if spin "Installing oh-my-zsh" \
+        env RUNZSH=no CHSH=no sh -c "$omz_script"; then
         track_status "Oh-My-Zsh" "OK"
     else
-        error "oh-my-zsh installation failed"
         track_status "Oh-My-Zsh" "FAIL"
         return 1
     fi
@@ -563,25 +602,19 @@ install_plugins() {
     # zsh-autosuggestions
     local autosug_dir="$ZSH_CUSTOM/plugins/zsh-autosuggestions"
     if [[ ! -d "$autosug_dir" ]]; then
-        log "Installing zsh-autosuggestions..."
-        if git clone --depth=1 https://github.com/zsh-users/zsh-autosuggestions "$autosug_dir"; then
-            success "zsh-autosuggestions installed"
-        else
-            error "zsh-autosuggestions failed"
+        if ! spin "Cloning zsh-autosuggestions" \
+            git clone --depth=1 https://github.com/zsh-users/zsh-autosuggestions "$autosug_dir"; then
             ((plugin_failures++)) || true
         fi
     else
         warn "zsh-autosuggestions already present"
     fi
-    
+
     # zsh-syntax-highlighting
     local synhi_dir="$ZSH_CUSTOM/plugins/zsh-syntax-highlighting"
     if [[ ! -d "$synhi_dir" ]]; then
-        log "Installing zsh-syntax-highlighting..."
-        if git clone --depth=1 https://github.com/zsh-users/zsh-syntax-highlighting "$synhi_dir"; then
-            success "zsh-syntax-highlighting installed"
-        else
-            error "zsh-syntax-highlighting failed"
+        if ! spin "Cloning zsh-syntax-highlighting" \
+            git clone --depth=1 https://github.com/zsh-users/zsh-syntax-highlighting "$synhi_dir"; then
             ((plugin_failures++)) || true
         fi
     else
@@ -607,12 +640,10 @@ install_p10k() {
     local p10k_dir="$ZSH_CUSTOM/themes/powerlevel10k"
     
     if [[ ! -d "$p10k_dir" ]]; then
-        log "Cloning powerlevel10k..."
-        if git clone --depth=1 https://github.com/romkatv/powerlevel10k.git "$p10k_dir"; then
-            success "powerlevel10k installed"
+        if spin "Cloning powerlevel10k" \
+            git clone --depth=1 https://github.com/romkatv/powerlevel10k.git "$p10k_dir"; then
             track_status "Powerlevel10k" "OK"
         else
-            error "powerlevel10k installation failed"
             track_status "Powerlevel10k" "FAIL"
             return 1
         fi
@@ -645,17 +676,15 @@ install_fonts() {
     for font in "${fonts[@]}"; do
         local decoded_font=$(echo "$font" | sed 's/%20/ /g')
         if [[ ! -f "$font_dir/$decoded_font" ]]; then
-            log "Downloading: $decoded_font"
-            if ! curl -fsSL -o "$font_dir/$decoded_font" "$base_url/$font"; then
-                warn "Failed to download $decoded_font"
+            if ! spin "Downloading $decoded_font" \
+                curl -fsSL -o "$font_dir/$decoded_font" "$base_url/$font"; then
                 ((font_failures++)) || true
             fi
         fi
     done
-    
+
     # Rebuild font cache
-    log "Rebuilding font cache..."
-    fc-cache -f "$font_dir" 2>/dev/null || true
+    spin "Rebuilding font cache" fc-cache -f "$font_dir" || true
     
     if [[ $font_failures -eq 0 ]]; then
         success "Fonts installed (configure your terminal to use 'MesloLGS NF')"
@@ -1162,7 +1191,7 @@ install_motd() {
 #===============================================================================
 # Echolume's Fun Homelab — Dynamic MOTD
 # lab.hoens.fun
-# Version: 16
+# Version: 17
 #===============================================================================
 
 # Colors
@@ -1551,13 +1580,13 @@ print_summary() {
 main() {
     echo ""
     echo -e "${BOLD}${CYAN}╔═══════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BOLD}${CYAN}║     PI-BOOTSTRAP — ADHD-Friendly Shell Setup  (v16)       ║${NC}"
+    echo -e "${BOLD}${CYAN}║     PI-BOOTSTRAP — ADHD-Friendly Shell Setup  (v17)       ║${NC}"
     echo -e "${BOLD}${CYAN}║     by Echolume · lab.hoens.fun                           ║${NC}"
     echo -e "${BOLD}${CYAN}╚═══════════════════════════════════════════════════════════╝${NC}"
     echo ""
     
     # Initialize log
-    echo "=== pi-bootstrap.sh v16 started $(date -Iseconds) ===" > "$LOG_FILE"
+    echo "=== pi-bootstrap.sh v17 started $(date -Iseconds) ===" > "$LOG_FILE"
     
     # Info-only mode
     if [[ "$INFO_ONLY" == true ]]; then
