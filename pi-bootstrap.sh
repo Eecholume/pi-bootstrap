@@ -840,9 +840,6 @@ setopt AUTO_PUSHD              # Push dirs onto stack automatically
 setopt PUSHD_IGNORE_DUPS       # No duplicate dirs in stack
 setopt PUSHD_SILENT            # Don't print stack after pushd/popd
 
-# Auto-ls after cd — immediately see what's in the directory
-chpwd() { ls --color=auto }
-
 # Completion improvements
 setopt COMPLETE_IN_WORD        # Complete from cursor position
 setopt ALWAYS_TO_END           # Move cursor to end after completion
@@ -1077,34 +1074,6 @@ aliases() {
 autoload -Uz add-zsh-hook
 __auto_ls() { ls --color=auto; }
 add-zsh-hook chpwd __auto_ls
-
-#-------------------------------------------------------------------------------
-# COLORED MAN PAGES (scannable, not a wall of monochrome text)
-#-------------------------------------------------------------------------------
-export LESS_TERMCAP_mb=$'\e[1;31m'     # begin bold
-export LESS_TERMCAP_md=$'\e[1;36m'     # begin blink — cyan headings
-export LESS_TERMCAP_me=$'\e[0m'        # end bold/blink
-export LESS_TERMCAP_so=$'\e[1;33;44m'  # begin standout — yellow on blue
-export LESS_TERMCAP_se=$'\e[0m'        # end standout
-export LESS_TERMCAP_us=$'\e[1;32m'     # begin underline — green
-export LESS_TERMCAP_ue=$'\e[0m'        # end underline
-
-#-------------------------------------------------------------------------------
-# LONG-COMMAND NOTIFICATION (bell after 10s+ commands)
-#   Terminal will flash/bounce when you've tabbed away
-#-------------------------------------------------------------------------------
-__cmd_timer_preexec() { __cmd_start=$SECONDS; }
-__cmd_timer_precmd() {
-    if (( ${__cmd_start:-0} > 0 )); then
-        local elapsed=$(( SECONDS - __cmd_start ))
-        if (( elapsed >= 10 )); then
-            printf '\a'
-        fi
-    fi
-    unset __cmd_start
-}
-add-zsh-hook preexec __cmd_timer_preexec
-add-zsh-hook precmd __cmd_timer_precmd
 
 #-------------------------------------------------------------------------------
 # TRASH (safe delete with undo — less anxiety than rm -i)
