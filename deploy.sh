@@ -1,6 +1,6 @@
 #!/bin/bash
 #===============================================================================
-# deploy-web-stack.sh — Elminster Phase 2: Web Stack Deployment
+# deploy.sh — Elminster Phase 2: Web Stack Deployment
 # Version: 1
 #
 # WHAT:  Deploys Docker, Caddy, Dockge, and Open WebUI on Elminster
@@ -25,8 +25,8 @@ set -euo pipefail
 # CONFIGURATION
 #-------------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WEB_STACK_DIR="$SCRIPT_DIR/web-stack"
-LOG_FILE="/var/log/deploy-web-stack.log"
+STACKS_SRC="$SCRIPT_DIR/stacks"
+LOG_FILE="/var/log/elminster-stack.log"
 STACKS_DIR="/opt/stacks"
 DOCKGE_DATA_DIR="/opt/dockge/data"
 CADDY_ENV_DIR="/etc/caddy"
@@ -124,13 +124,13 @@ preflight() {
         exit 1
     fi
 
-    # Check web-stack directory exists
-    if [[ ! -d "$WEB_STACK_DIR" ]]; then
-        error "web-stack directory not found at $WEB_STACK_DIR"
-        error "Run this script from the pi-bootstrap repo root"
+    # Check stacks source directory exists
+    if [[ ! -d "$STACKS_SRC" ]]; then
+        error "stacks/ directory not found at $STACKS_SRC"
+        error "Run this script from the elminster-stack repo root"
         exit 1
     fi
-    success "Web stack configs found at $WEB_STACK_DIR"
+    success "Web stack configs found at $STACKS_SRC"
 }
 
 #-------------------------------------------------------------------------------
@@ -266,9 +266,9 @@ deploy_caddy() {
     mkdir -p "$caddy_stack"
 
     # Copy compose and config files
-    cp "$WEB_STACK_DIR/caddy/compose.yaml" "$caddy_stack/compose.yaml"
-    cp "$WEB_STACK_DIR/caddy/Caddyfile" "$caddy_stack/Caddyfile"
-    cp "$WEB_STACK_DIR/caddy/Dockerfile" "$caddy_stack/Dockerfile"
+    cp "$STACKS_SRC/caddy/compose.yaml" "$caddy_stack/compose.yaml"
+    cp "$STACKS_SRC/caddy/Caddyfile" "$caddy_stack/Caddyfile"
+    cp "$STACKS_SRC/caddy/Dockerfile" "$caddy_stack/Dockerfile"
     success "Caddy configs copied to $caddy_stack"
 
     log "Building custom Caddy image with Cloudflare DNS plugin (this takes a few minutes on ARM64)..."
@@ -313,7 +313,7 @@ deploy_dockge() {
     mkdir -p "$STACKS_DIR/dockge" "$DOCKGE_DATA_DIR"
 
     # Copy compose file
-    cp "$WEB_STACK_DIR/dockge/compose.yaml" "$STACKS_DIR/dockge/compose.yaml"
+    cp "$STACKS_SRC/dockge/compose.yaml" "$STACKS_DIR/dockge/compose.yaml"
     success "Dockge config copied to $STACKS_DIR/dockge"
 
     log "Pulling Dockge image..."
@@ -356,7 +356,7 @@ deploy_open_webui() {
     mkdir -p "$STACKS_DIR/open-webui"
 
     # Copy compose file
-    cp "$WEB_STACK_DIR/open-webui/compose.yaml" "$STACKS_DIR/open-webui/compose.yaml"
+    cp "$STACKS_SRC/open-webui/compose.yaml" "$STACKS_DIR/open-webui/compose.yaml"
     success "Open WebUI config copied to $STACKS_DIR/open-webui"
 
     log "Pulling Open WebUI image (this is a large image — be patient)..."
