@@ -74,7 +74,7 @@ pactl info 2>/dev/null || pulseaudio --check 2>/dev/null && echo "PulseAudio run
 pipewire --version 2>/dev/null || true
 
 divider "DISPLAY / DESKTOP"
-echo "DISPLAY=$DISPLAY" 2>/dev/null || echo "DISPLAY not set"
+echo "DISPLAY=${DISPLAY:-not set}"
 echo "XDG_SESSION_TYPE=${XDG_SESSION_TYPE:-not set}"
 echo "WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-not set}"
 dpkg -l | grep -E "xserver|wayland|lxde|lxqt|pixel|desktop" 2>/dev/null | head -10 || true
